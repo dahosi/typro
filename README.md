@@ -299,6 +299,6 @@ typro/
 
 ## License
 
-Open-source project released under the MIT License. Free to use, read, learn
-from, modify, and share.
+Open-source project by **dahosi**, released under the MIT License. Free to use,
+read, learn from, modify, and share.
 # typro
