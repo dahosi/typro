@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Typro
+Comment=Offline typewriter
+Exec=python3 /home/pi/typro/typro.py
+Path=/home/pi/typro
+Icon=/home/pi/typro/typro.png
+Terminal=false
+Categories=Utility;
