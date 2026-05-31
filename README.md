@@ -104,7 +104,7 @@ in red** and everything else prints in **black**.
 Then run:
 
 ```bash
-cd /Users/mholanda/Developer/typro
+cd path/to/typro
 python3 typro.py
 ```
 
@@ -299,6 +299,6 @@ typro/
 
 ## License
 
-Personal portfolio project by **mholanda**. Free to read, learn from, and
-adapt.
+Open-source project released under the MIT License. Free to use, read, learn
+from, modify, and share.
 # typro

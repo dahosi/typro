@@ -10,7 +10,7 @@ Visual inspiration: Olympia SM3 (Italic typeface, 1956).
 This is a single-file program written with Python's built-in Tkinter toolkit,
 so it runs the same on macOS (for testing) and on Raspberry Pi OS.
 
-Author: mholanda
+Open-source project, released under the MIT License.
 """
 
 # ---------------------------------------------------------------------------
