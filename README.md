@@ -24,19 +24,25 @@ in red** and everything else prints in **black**.
 
 ## Features
 
-- **Vintage paper look** — cream/yellowish page on a dark "desk" background.
 - **Two-colour ribbon** — black text, and **red dates** in `DD MON YYYY`
   format (e.g. `31 MAY 2026`), inserted with one shortcut.
-- **Typewriter view** — the line you are typing stays at the **top** of the
-  page and earlier lines scroll up out of sight, like paper feeding through a
-  real typewriter. Scroll up any time to re-read what you wrote. Toggle on/off.
+- **Real-size pages on a textured desk** — your text sits on a cream sheet,
+  drawn at the true proportions of the paper you chose (A4 or the 3 × 4 card),
+  resting on a textured brown desk in the project's brand colours — so what you
+  see is what the PDF/print will look like.
+- **Automatic page flow** — when a page fills to the bottom, typing continues on
+  a new page automatically; the on-screen page breaks match the PDF exactly.
+  Move between pages with `Ctrl + Left` / `Ctrl + Right`, or start a fresh page
+  with `Ctrl + N`.
 - **Pages & notebooks** — create single pages, or a **notebook** whose pages
   are all saved together in one file.
 - **Full document control** — new, save, save-as, open, edit, and delete pages.
 - **Paper sizes** — choose **A4** or a **3 × 4 inch** card.
 - **Export to open formats** — export to **PDF** (keeps the exact page layout,
   black/red colours, and chosen paper size, flowing long notes across pages) or
-  **plain text** (`.txt`), so you can open your notes in any program.
+  **plain text** (`.txt`), so you can open your notes in any program. On PDF
+  export you choose the page background: **vintage cream** (as shown in the app)
+  or **white**.
 - **You choose where & under what name** to save (standard save dialog).
 - **Opens full screen** — launches like a dedicated writing appliance; press
   `F11` (or `Esc`) to drop to a window.
@@ -45,15 +51,22 @@ in red** and everything else prints in **black**.
 - **Keyboard only** — every action has a shortcut; no mouse required.
 - **Built-in help** — press `Ctrl+/` (or `F1`), or click the floating round
   **?** button in the bottom-right corner, for the full shortcut list.
+- **App icon** — a bundled typewriter icon (in `img/`) is used for the window,
+  the taskbar/Dock, and the desktop launchers, so Typro is easy to spot and to
+  switch between with your other open apps.
 - **Fully offline** — no network, no accounts, no telemetry.
 - **Open file format** — notebooks are plain-text JSON (`.typro`), so your
   writing is never locked in; PDF/TXT export gives universally-openable copies.
 
 ## Keyboard shortcuts
 
+> **The modifier key is `Ctrl` on Windows / Raspberry Pi / Linux and `⌘ Command`
+> on macOS.** The table uses `Ctrl`; on a Mac, read every `Ctrl` as `Cmd`
+> (e.g. `Cmd + S` to save). Typro picks the right one automatically.
+
 | Shortcut            | Action                                  |
 | ------------------- | --------------------------------------- |
-| `Ctrl + N`          | New page in the current notebook        |
+| `Ctrl + N`          | New page (page break)                   |
 | `Ctrl + Shift + N`  | New notebook                            |
 | `Ctrl + O`          | Open a `.typro` notebook                |
 | `Ctrl + S`          | Save (`.typro`, editable in Typro)      |
@@ -64,19 +77,17 @@ in red** and everything else prints in **black**.
 | `Ctrl + Right`      | Next page                               |
 | `Ctrl + Left`       | Previous page                           |
 | `Ctrl + Shift + P`  | Change paper size (A4 / 3×4 in)         |
-| `Ctrl + M`          | Typewriter view on/off (line at top)    |
 | `Ctrl + B`          | Key-click sound on/off                  |
 | `F11`               | Full screen on/off (`Esc` also exits)   |
 | `Ctrl + Z` / `Ctrl + Y` | Undo / Redo                         |
 | `Ctrl + /` or `F1`  | Help (this list) — also the **?** button |
 | `Ctrl + Q`          | Quit                                    |
 
-> **macOS note:** the function keys are taken by the system, so **`F1` may not
-> open Help unless you also hold `Fn`**. Use **`Ctrl + /`** or the **?** button
-> instead. On the Raspberry Pi, `F1` works normally.
-
-> On a Mac, `Ctrl` still works for these shortcuts (Typro uses `Ctrl`, not
-> `Cmd`, so the behaviour matches the Raspberry Pi exactly).
+> **macOS note:** Typro uses **`⌘ Command`** as the modifier on macOS (so it
+> feels native), and **`Ctrl`** on Windows / Raspberry Pi / Linux. Also, the
+> function keys are taken by macOS, so **`F1` may not open Help unless you hold
+> `Fn`** — use **`Cmd + /`** or the **?** button. On the Raspberry Pi, `F1`
+> works normally.
 
 ---
 
@@ -121,6 +132,53 @@ To launch it like a real appliance — full screen, on boot — see
 
 ---
 
+## App icon
+
+The icons live in the `img/` folder. Typro loads one automatically at startup
+for the **window and taskbar**:
+
+- **Raspberry Pi / Linux & Windows:** the app uses
+  `img/typewriter_icon_128x128.png` (Windows also uses `img/typewriter_icon.ico`
+  if present). It appears in the title bar and the taskbar, so you can switch
+  to Typro like any other app.
+- **macOS:** Tkinter can show the PNG as the window icon, but the **Dock** icon
+  of a script run with `python3` is controlled by the system. To get the
+  typewriter icon in the Dock, bundle the app with the provided
+  `img/typewriter_icon.icns` (e.g. via `py2app`) — optional and outside the
+  single-file scope.
+
+For the **desktop launchers**:
+
+- **Raspberry Pi:** `typro.desktop` already points its `Icon=` line at
+  `img/typewriter_icon_128x128.png` (adjust the path to where you put the
+  project).
+- **Windows:** when you make a shortcut to `Typro.bat`, set its icon via
+  *Properties → Change Icon…* and choose `img/typewriter_icon.ico`.
+- **macOS:** to give `Typro.command` a custom icon in Finder, copy
+  `img/typewriter_icon.icns`, then *Get Info* on the launcher and paste it onto
+  the icon in the top-left.
+
+> The app still runs fine if an icon file is missing — it just falls back to the
+> default icon.
+
+---
+
+## Theme & brand colours
+
+Typro is themed in the project's brand palette:
+
+`#b81106` `#830a06` `#1f140f` `#d4b9a5` `#ad5e33` `#a88b75` `#cf845b` `#4c3126` `#783c1d`
+
+- **Desk background:** `#4a2f24` with a subtle leather grain.
+- **Ink:** near-black `#1f140f`; **dates:** brand red `#b81106`.
+- **Status bar:** `#1f140f` with `#d4b9a5` text; **the "?" button:** `#cf845b`.
+- **Paper:** vintage cream (`#F5ECD7`) for the classic typewriter look.
+
+All colours live as constants at the top of `typro.py`, so the theme is easy to
+adjust in one place.
+
+---
+
 ## Fonts (free, classic typewriter look)
 
 Typro automatically picks the first font it finds from this list:
@@ -152,7 +210,7 @@ Typro you can open it in any text editor and read your words.
 | Format    | Made with     | Use it to…                                              |
 | --------- | ------------- | ------------------------------------------------------- |
 | `.typro`  | `Ctrl + S`    | **Keep editing in Typro** — preserves pages, red dates, paper size, and the full UI. This is your working copy. |
-| `.pdf`    | `Ctrl + E`    | **Open/print/share anywhere** — keeps the exact page layout, black/red colours, and the chosen paper size; long notes flow across pages. |
+| `.pdf`    | `Ctrl + E`    | **Open/print/share anywhere** — keeps the exact page layout, black/red colours, and the chosen paper size; long notes flow across pages. You pick a **cream** or **white** page background on export. |
 | `.txt`    | `Ctrl + E`    | Plain editable text in any program (loses colour and layout). |
 
 > Rule of thumb: **save as `.typro`** while you are writing, and **export a PDF**
@@ -179,13 +237,14 @@ Example of what a saved `.typro` file looks like:
 
 ## Pages vs. notebooks
 
-- A **page** is a single sheet you type on.
-- A **notebook** is a collection of pages stored together in one `.typro` file.
+- A **notebook** is one `.typro` file — your whole document.
+- Inside it, text flows across **pages** automatically, sized to the paper you
+  chose. You don't manage page edges by hand: fill a page and the next one
+  appears; delete text and the following pages flow back up.
 
-When you start Typro you are already in a notebook (called *Untitled Notebook*)
-with one blank page. `Ctrl+N` adds more pages to it; `Ctrl+S` saves them all at
-once. If you only ever make one page, that's fine too — it just becomes a
-one-page notebook.
+`Ctrl + Left` / `Ctrl + Right` move between pages, `Ctrl + N` starts a fresh
+page (a page break), and `Ctrl + Delete` removes the current page. `Ctrl + S`
+saves the whole notebook at once. The status bar shows *Page X of Y*.
 
 ---
 
@@ -220,18 +279,15 @@ dedicated typewriter. Press `F11` or `Esc` to leave full screen if needed.
 typro/
 ├── typro.py            # the entire application (one file)
 ├── README.md           # this file — what the project is and how to use it
-├── QUICKSTART.md       # minimal "how to open it" steps per OS
-├── SHORTCUTS.md        # full keyboard shortcut reference
-├── INSTALL.md          # detailed install/run guide + troubleshooting
-├── LAUNCHERS.md        # double-click launchers and adding an icon
 ├── Typro.command       # macOS double-click launcher
 ├── Typro.bat           # Windows double-click launcher
 ├── typro.desktop       # Raspberry Pi / Linux launcher
-├── REQUIREMENTS.md     # software requirements specification
-├── TESTING.md          # the test plan
-├── SECURITY.md         # security policy and review
-├── CODE_EXPLAINED.md   # the code explained line-by-line for beginners
-└── PROMPT.md           # the project brief, written professionally
+└── img/                # app icons (see "App icon" below)
+    ├── typewriter_icon.icns           # macOS app-bundle icon
+    ├── typewriter_icon.ico            # Windows shortcut icon
+    ├── typewriter_icon_128x128.png    # window / taskbar icon (used by the app)
+    ├── typewriter_icon_48x48.png      # small icon
+    └── typewriter_icon_color.svg      # scalable source
 ```
 
 ## Roadmap / ideas

@@ -40,12 +40,25 @@ import tempfile                           # where the generated click is stored
 APP_NAME      = "Typro"
 FILE_EXT      = ".typro"                  # our own file type (it is just JSON)
 
+# Palette - the brand colours of the project.
+#   #b81106 #830a06 #1f140f #d4b9a5 #ad5e33 #a88b75 #cf845b #4c3126 #783c1d
 PAPER_COLOR   = "#F5ECD7"                 # cream / yellowish vintage paper
-DESK_COLOR    = "#3B342B"                 # dark "desk" behind the paper
-TEXT_COLOR    = "#1A1A1A"                 # near-black, softer than pure black
-DATE_COLOR    = "#B22222"                 # firebrick red, like a 2-colour ribbon
-STATUS_BG     = "#2A2520"                 # dark strip at the bottom
-STATUS_FG     = "#E8DFC8"                 # light text on the dark strip
+DESK_COLOR    = "#4a2f24"                 # the brand background colour
+DESK_GRAIN    = ["#4c3126", "#783c1d", "#3a241b"]   # subtle leather-grain specks
+SHEET_SHADOW  = "#1f140f"                 # soft shadow cast by the paper (brand)
+TEXT_COLOR    = "#1f140f"                 # near-black brand ink
+DATE_COLOR    = "#b81106"                 # brand red, like a 2-colour ribbon
+STATUS_BG     = "#1f140f"                 # dark strip at the bottom (brand)
+STATUS_FG     = "#d4b9a5"                 # light tan text on the dark strip (brand)
+HELP_FILL     = "#cf845b"                 # the round "?" button (brand terracotta)
+HELP_FG       = "#1f140f"                 # text on the "?" button
+
+# On-screen page layout (pixels).
+OUTER_MARGIN  = 40                        # gap between the sheet and the window edge
+SHEET_PADX    = 18                        # left/right margin inside the paper
+SHEET_PADY    = 18                        # top/bottom margin inside the paper
+MIN_FONT      = 7                         # smallest the type may shrink to
+MAX_FONT      = 26                        # largest the type may grow to
 
 # Preferred fonts, best first. We pick the first one your computer actually has.
 # Courier Prime and TT2020 are free classic typewriter fonts (see README).
@@ -53,23 +66,37 @@ FONT_WISHLIST = ["Courier Prime", "TT2020", "Courier New", "Courier"]
 FONT_SIZE     = 14
 
 # Paper sizes.
-#   cols      = how many characters fit across one line on screen.
-#   pts       = the real page size in PDF points (1 point = 1/72 inch),
-#               used when exporting to PDF so the file matches the paper.
+#   cols/rows = the character grid of ONE page. These match the PDF exporter, so
+#               the page breaks you see on screen are exactly where the PDF (and
+#               a printout) will break.
+#   pts       = the real page size in PDF points (1 point = 1/72 inch).
 #   margin    = blank border in points around the PDF text.
 #   pdf_font  = font size in points used in the exported PDF.
 PAPER_SIZES = {
-    "A4":    {"cols": 78, "rows": 34, "label": "A4 (210 x 297 mm)",
+    "A4":    {"cols": 73, "rows": 49, "label": "A4 (210 x 297 mm)",
               "pts": (595.28, 841.89), "margin": 56.7, "pdf_font": 11},
-    "3x4in": {"cols": 30, "rows": 22, "label": "3 x 4 inch card",
+    "3x4in": {"cols": 33, "rows": 20, "label": "3 x 4 inch card",
               "pts": (216.0, 288.0),   "margin": 18.0, "pdf_font": 9},
 }
 
 # Text colours expressed for PDF (red/green/blue, each 0.0 to 1.0).
-PDF_RGB = {"black": (0.0, 0.0, 0.0), "red": (0.698, 0.133, 0.133)}
+PDF_RGB = {"black": (0.122, 0.078, 0.059), "red": (0.722, 0.067, 0.024)}
+
+# The vintage cream paper colour (PAPER_COLOR = #F5ECD7) as a PDF fill colour,
+# used when the user chooses a cream page background for the exported PDF.
+PDF_CREAM = (0.961, 0.925, 0.843)
 
 # The date format the user asked for: DD MON YYYY  ->  e.g. 31 MAY 2026
 DATE_FORMAT = "%d %b %Y"
+
+# The shortcut modifier key. macOS users expect Command; Windows / Raspberry Pi
+# / Linux users expect Control. MOD is used to build the key bindings, MOD_LABEL
+# is what we show in the help and status bar, and SHORTCUT_MASK lets the click
+# sound ignore keys pressed as part of a shortcut.
+if sys.platform == "darwin":
+    MOD, MOD_LABEL, SHORTCUT_MASK = "Command", "Cmd", 0x8
+else:
+    MOD, MOD_LABEL, SHORTCUT_MASK = "Control", "Ctrl", 0x4
 
 
 # ---------------------------------------------------------------------------
@@ -87,17 +114,20 @@ class Typro:
         # It holds its name, the chosen paper size, and a list of pages.
         # Each page is a list of "segments": pieces of text with a colour.
         self.notebook = self._blank_notebook("Untitled Notebook", "A4")
-        self.current_page = 0          # which page we are looking at (0 = first)
         self.file_path = None          # where this notebook lives on disk
         self.modified = False          # True if there are unsaved changes
 
-        # ---- Typewriter view ------------------------------------------------
-        # When on, the line you are typing stays at the TOP and earlier lines
-        # scroll up out of sight (you can scroll back up to read them), like
-        # paper feeding up through a real typewriter. We do this by keeping a
-        # block of blank "filler" lines below your text (tagged so they are
-        # never saved) so that even the last line can be scrolled to the top.
-        self.typewriter_mode = True
+        # ---- Pages (fixed-size sheets with automatic flow) ------------------
+        # The whole document lives in ONE text box and flows continuously. We
+        # show it one PAGE at a time: a page is `cols` characters wide and
+        # `rows` lines tall (matching the chosen paper). When you fill a page,
+        # typing continues on the next page automatically; you move between
+        # pages with Ctrl+Left / Ctrl+Right.
+        self.cols = PAPER_SIZES[self.notebook["paper_size"]]["cols"]
+        self.rows = PAPER_SIZES[self.notebook["paper_size"]]["rows"]
+        self.current_page = 0          # which page is in view (0 = first)
+        self._text_window = None       # canvas id of the paper, once placed
+        self._laying_out = False       # guard against re-entrant layout
 
         # The app opens in full screen (like a dedicated typewriter); F11 or
         # Esc toggles back to a window.
@@ -115,7 +145,7 @@ class Typro:
         # ---- Build the window ----------------------------------------------
         self._build_window()
         self._bind_shortcuts()
-        self._load_page_into_view(self.current_page)
+        self._load_notebook()
         self._refresh_status()
 
     # -----------------------------------------------------------------------
@@ -142,54 +172,79 @@ class Typro:
                 return name
         return "Courier"   # last-resort fallback that exists everywhere
 
+    def _set_window_icon(self):
+        """Give the window/taskbar an app icon, using the files in img/.
+        Best-effort: if an icon file is missing or the platform refuses it, the
+        app simply keeps the default icon."""
+        img_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "img")
+        # Windows prefers a .ico for the title bar and taskbar.
+        if sys.platform.startswith("win"):
+            ico = os.path.join(img_dir, "typewriter_icon.ico")
+            if os.path.exists(ico):
+                try:
+                    self.root.iconbitmap(ico)
+                except tk.TclError:
+                    pass
+        # A PNG icon works across platforms (Linux/Raspberry Pi taskbar, and the
+        # window proxy icon). We keep a reference so it is not garbage-collected.
+        png = os.path.join(img_dir, "typewriter_icon_128x128.png")
+        if os.path.exists(png):
+            try:
+                self._app_icon = tk.PhotoImage(file=png)
+                self.root.iconphoto(True, self._app_icon)
+            except tk.TclError:
+                pass
+
     # -----------------------------------------------------------------------
     # 3b. Building the visible window
     # -----------------------------------------------------------------------
     def _build_window(self):
         self.root.title(APP_NAME)
+        self._set_window_icon()
         self.root.configure(bg=DESK_COLOR)
         self.root.geometry("900x680")          # the size if you leave fullscreen
         self.root.minsize(640, 480)
         self.root.attributes("-fullscreen", self.fullscreen)   # open fullscreen
 
-        # The "desk" area that surrounds the paper.
-        self.desk = tk.Frame(self.root, bg=DESK_COLOR)
+        # The "desk" is a Canvas so we can paint a textured leather-brown
+        # surface and draw the paper (with a shadow and chrome trim) on top.
+        self.desk = tk.Canvas(self.root, bg=DESK_COLOR, highlightthickness=0, bd=0)
         self.desk.pack(fill="both", expand=True)
-        desk = self.desk
 
-        # The "paper": a Text widget the user types into.
-        # We wrap on whole words so text never gets cut mid-word.
-        cols = PAPER_SIZES[self.notebook["paper_size"]]["cols"]
+        # The "paper": a Text widget the user types into. It is sized to one
+        # page (cols x rows) and placed on the desk by _layout(). We wrap on
+        # whole words so text never gets cut mid-word.
         self.text = tk.Text(
-            desk,
-            width=cols,
+            self.desk,
+            width=self.cols, height=self.rows,
             wrap="word",
             font=self.type_font,
             bg=PAPER_COLOR,
             fg=TEXT_COLOR,
             insertbackground=TEXT_COLOR,   # the blinking cursor colour
-            padx=28, pady=28,              # margins inside the paper
-            spacing1=2, spacing3=2,        # a little breathing room per line
+            padx=SHEET_PADX, pady=SHEET_PADY,
             relief="flat",
             borderwidth=0,
             undo=True,                     # enables Ctrl+Z / Ctrl+Y
             highlightthickness=0,
         )
-        # Centre the paper on the desk with some margin around it.
-        self.text.pack(expand=True, padx=40, pady=30)
 
         # Define the "date" style: any text tagged "date" turns red.
         self.text.tag_configure("date", foreground=DATE_COLOR)
-        # The "pad" style marks the blank filler lines so we never save them.
+        # The "pad" style marks invisible filler lines kept below your text so
+        # that even a half-empty last page can be shown from its top. Filler is
+        # never saved or exported.
         self.text.tag_configure("pad")
 
         # Whenever the user types, remember that there are unsaved changes.
         self.text.bind("<<Modified>>", self._on_text_modified)
-
-        # Typewriter view: after each key, keep the current line at the top.
-        self.text.bind("<KeyRelease>", self._typewriter_scroll)
+        # After any key, keep the page that holds the cursor in view.
+        self.text.bind("<KeyRelease>", self._update_pagination)
         # Play the key-click sound as keys go down.
         self.text.bind("<KeyPress>", self._play_click)
+
+        # Re-lay-out the page whenever the window is resized.
+        self.desk.bind("<Configure>", self._layout)
 
         # The status strip along the bottom.
         self.status = tk.Label(
@@ -199,7 +254,7 @@ class Typro:
         self.status.pack(side="bottom", fill="x")
 
         # A floating round "?" button in the bottom-right corner that opens the
-        # shortcuts help. It is a visible hint; the keyboard (F1) still works.
+        # shortcuts help. It is a visible hint; the keyboard (Ctrl+/) still works.
         self._build_help_button(self.desk)
 
         self.text.focus_set()   # so the user can type immediately
@@ -209,13 +264,14 @@ class Typro:
         size = 44
         btn = tk.Canvas(parent, width=size, height=size, bg=DESK_COLOR,
                         highlightthickness=0, bd=0, cursor="hand2")
-        btn.create_oval(3, 3, size - 3, size - 3, fill="#C9A24B", outline="")
+        btn.create_oval(3, 3, size - 3, size - 3, fill=HELP_FILL, outline="")
         btn.create_text(size // 2, size // 2 - 1, text="?",
-                        fill="#2A2520", font=("Helvetica", 20, "bold"))
+                        fill=HELP_FG, font=("Helvetica", 20, "bold"))
         btn.bind("<Button-1>", lambda e: self.show_help())
-        btn.bind("<Enter>", lambda e: self._show_tip(btn, "Keyboard shortcuts (F1)"))
+        btn.bind("<Enter>", lambda e: self._show_tip(btn, f"Shortcuts ({MOD_LABEL} + /)"))
         btn.bind("<Leave>", lambda e: self._hide_tip())
         btn.place(relx=1.0, rely=1.0, anchor="se", x=-18, y=-18)
+        self._help_btn = btn
         self._tip = None
 
     def _show_tip(self, widget, message):
@@ -238,32 +294,34 @@ class Typro:
     # 3c. Keyboard shortcuts (the only way to drive the app - no mouse needed)
     # -----------------------------------------------------------------------
     def _bind_shortcuts(self):
+        # MOD is "Command" on macOS and "Control" elsewhere, so the shortcuts
+        # feel native on every platform.
         b = self.root.bind_all
-        b("<Control-n>",        lambda e: self.new_page())
-        b("<Control-N>",        lambda e: self.new_page())
-        b("<Control-Shift-N>",  lambda e: self.new_notebook())
-        b("<Control-s>",        lambda e: self.save())
-        b("<Control-Shift-S>",  lambda e: self.save_as())
-        b("<Control-o>",        lambda e: self.open_notebook())
-        b("<Control-d>",        lambda e: self.insert_date())
-        b("<Control-Delete>",   lambda e: self.delete_page())
-        b("<Control-Right>",    lambda e: self.next_page())
-        b("<Control-Left>",     lambda e: self.prev_page())
-        b("<Control-p>",        lambda e: self.export())          # "Print" -> PDF
-        b("<Control-e>",        lambda e: self.export())
-        b("<Control-Shift-P>",  lambda e: self.choose_paper_size())
-        b("<Control-m>",        lambda e: self.toggle_typewriter())
-        b("<Control-b>",        lambda e: self.toggle_sound())
-        b("<F11>",              lambda e: self.toggle_fullscreen())
+        b(f"<{MOD}-n>",        lambda e: self.new_page())
+        b(f"<{MOD}-N>",        lambda e: self.new_page())
+        b(f"<{MOD}-Shift-N>",  lambda e: self.new_notebook())
+        b(f"<{MOD}-s>",        lambda e: self.save())
+        b(f"<{MOD}-Shift-S>",  lambda e: self.save_as())
+        b(f"<{MOD}-o>",        lambda e: self.open_notebook())
+        b(f"<{MOD}-d>",        lambda e: self.insert_date())
+        b(f"<{MOD}-Delete>",   lambda e: self.delete_page())
+        b(f"<{MOD}-BackSpace>", lambda e: self.delete_page())   # mac Delete key
+        b(f"<{MOD}-Right>",    lambda e: self.next_page())
+        b(f"<{MOD}-Left>",     lambda e: self.prev_page())
+        b(f"<{MOD}-p>",        lambda e: self.export())          # "Print" -> PDF
+        b(f"<{MOD}-e>",        lambda e: self.export())
+        b(f"<{MOD}-Shift-P>",  lambda e: self.choose_paper_size())
+        b(f"<{MOD}-b>",        lambda e: self.toggle_sound())
+        b("<F11>",             lambda e: self.toggle_fullscreen())
         # Help: F1 works on the Raspberry Pi; on macOS the F-keys are taken by
-        # the system, so Ctrl+/ is the reliable shortcut (the "?" button always
+        # the system, so the MOD+/ shortcut is reliable (the "?" button always
         # works too).
-        b("<F1>",               lambda e: self.show_help())
-        b("<Control-slash>",    lambda e: self.show_help())
+        b("<F1>",              lambda e: self.show_help())
+        b(f"<{MOD}-slash>",    lambda e: self.show_help())
         # Esc leaves full screen (only from the typing area, so it does not
         # clash with Esc closing a pop-up window).
         self.text.bind("<Escape>", self._exit_fullscreen)
-        b("<Control-q>",        lambda e: self.quit_app())
+        b(f"<{MOD}-q>",        lambda e: self.quit_app())
         # When the window's close button is used, run our safe-quit routine.
         self.root.protocol("WM_DELETE_WINDOW", self.quit_app)
 
@@ -271,14 +329,14 @@ class Typro:
     # 3d. Converting between the typing area and our saved data
     # -----------------------------------------------------------------------
     def _view_to_segments(self):
-        """Read the typing area and return a list of {text, color} segments.
+        """Read the whole document and return a list of {text, color} segments.
 
         We 'dump' the Text widget, which gives us the characters in order plus
         markers for where the red 'date' style turns on and off.
         """
         segments = []
         color = "black"
-        in_padding = False
+        in_pad = False
         for key, value, _index in self.text.dump("1.0", "end-1c",
                                                   tag=True, text=True):
             if key == "tagon" and value == "date":
@@ -286,10 +344,10 @@ class Typro:
             elif key == "tagoff" and value == "date":
                 color = "black"
             elif key == "tagon" and value == "pad":
-                in_padding = True
+                in_pad = True
             elif key == "tagoff" and value == "pad":
-                in_padding = False
-            elif key == "text" and not in_padding:
+                in_pad = False
+            elif key == "text" and not in_pad:
                 segments.append({"text": value, "color": color})
         return segments
 
@@ -301,56 +359,144 @@ class Typro:
                 self.text.insert("end", seg["text"], "date")
             else:
                 self.text.insert("end", seg["text"])
-        self._add_padding()                  # blank filler lines for typewriter view
+        self._refresh_pad()                  # invisible filler below the text
         self.text.mark_set("insert", "1.0")  # start at the top of the sheet
-        self.text.edit_reset()               # so filler/loading can't be "undone"
-
-    # -----------------------------------------------------------------------
-    # 3d-bis. Typewriter view: keep the current line at the top
-    # -----------------------------------------------------------------------
-    def _pad_count(self):
-        """How many blank filler lines to keep below the text: about a full
-        screen's worth, so even the last line can be scrolled to the top."""
-        line = max(1, self.type_font.metrics("linespace"))
-        return self.text.winfo_screenheight() // line
-
-    def _add_padding(self):
-        """Append blank filler lines (tagged 'pad' so they are never saved)."""
-        if not self.typewriter_mode:
-            return
-        self.text.insert("end", "\n" * self._pad_count(), "pad")
-
-    def _remove_padding(self):
-        """Delete the blank filler lines, if any."""
-        spans = self.text.tag_ranges("pad")
-        # tag_ranges returns pairs (start, end); delete each pair.
-        for i in range(0, len(spans), 2):
-            self.text.delete(spans[i], spans[i + 1])
-
-    def _typewriter_scroll(self, _event=None):
-        """After typing, scroll so the line with the cursor sits at the top.
-        The blank filler below gives the room to do this on the last line too."""
-        if not self.typewriter_mode:
-            return
-        self.text.update_idletasks()
-        self.text.see("insert")
-        first = int(self.text.index("@0,0").split(".")[0])
-        current = int(self.text.index("insert").split(".")[0])
-        if current > first:
-            self.text.yview_scroll(current - first, "units")
-
-    def toggle_typewriter(self):
-        """Turn the top-line typewriter view on or off."""
-        was_modified = self.modified          # adding/removing filler must not
-        self.typewriter_mode = not self.typewriter_mode   # count as an edit
-        if self.typewriter_mode:
-            self._add_padding()
-            self._typewriter_scroll()
-        else:
-            self._remove_padding()
-            self.text.see("insert")
+        self.text.edit_reset()               # loading can't be "undone"
         self.text.edit_modified(False)
-        self.modified = was_modified
+
+    # -----------------------------------------------------------------------
+    # 3d-pad. Invisible filler so any page can scroll to the top
+    # -----------------------------------------------------------------------
+    def _refresh_pad(self):
+        """Keep exactly `rows` blank filler lines (tagged 'pad') below the text,
+        giving enough room to scroll the last, half-empty page to the top.
+
+        We trim trailing blank lines by *content* (not by tag) and re-append the
+        filler, so a stray tag can never delete or hide real text."""
+        self.text.tag_remove("pad", "1.0", "end")
+        content = self.text.get("1.0", "end-1c")
+        keep = len(content.rstrip())                     # drop trailing blanks
+        self.text.delete(f"1.0 + {keep} chars", "end-1c")
+        self.text.insert("end-1c", "\n" * self.rows, "pad")
+
+    def _content_end(self):
+        """Index where the real text ends and the filler begins."""
+        spans = self.text.tag_ranges("pad")
+        return spans[0] if spans else "end-1c"
+
+    def _content_display_lines(self):
+        """On-screen (wrapped) line count of the real text, excluding filler."""
+        n = self.text.count("1.0", self._content_end(), "displaylines")
+        return (n[0] if n else 0) + 1
+
+    # -----------------------------------------------------------------------
+    # 3d-bis. Page layout: draw the textured desk and the cream sheet
+    # -----------------------------------------------------------------------
+    def _fit_font(self, avail_w, avail_h):
+        """Pick the biggest font size at which a whole page (cols x rows) still
+        fits in the space available, so you can see the full page at once."""
+        for size in range(MAX_FONT, MIN_FONT - 1, -1):
+            self.type_font.configure(size=size)
+            cw = self.type_font.measure("0")
+            lh = self.type_font.metrics("linespace")
+            if (self.cols * cw + 2 * SHEET_PADX <= avail_w and
+                    self.rows * lh + 2 * SHEET_PADY <= avail_h):
+                return size
+        self.type_font.configure(size=MIN_FONT)
+        return MIN_FONT
+
+    def _draw_desk(self, w, h):
+        """Paint the leather-brown desk with a subtle grain texture."""
+        c = self.desk
+        c.delete("desk")
+        c.create_rectangle(0, 0, w, h, fill=DESK_COLOR, outline="", tags="desk")
+        rnd = random.Random(7)               # fixed seed -> stable texture
+        for _ in range(min(1500, (w * h) // 1500)):
+            x, y = rnd.randint(0, w), rnd.randint(0, h)
+            c.create_line(x, y, x + rnd.randint(2, 6), y,
+                          fill=rnd.choice(DESK_GRAIN), tags="desk")
+        c.tag_lower("desk")
+
+    def _layout(self, _event=None):
+        """Size the page to the chosen paper, centre it on the desk, and draw
+        its shadow and chrome trim. Runs on launch and on every window resize."""
+        if self._laying_out:
+            return
+        self._laying_out = True
+        try:
+            c = self.desk
+            c.update_idletasks()
+            w, h = c.winfo_width(), c.winfo_height()
+            if w < 50 or h < 50:
+                return
+            self._draw_desk(w, h)
+            self._fit_font(w - 2 * OUTER_MARGIN, h - 2 * OUTER_MARGIN)
+            self.text.configure(width=self.cols, height=self.rows,
+                                padx=SHEET_PADX, pady=SHEET_PADY)
+            self.text.update_idletasks()
+            tw, th = self.text.winfo_reqwidth(), self.text.winfo_reqheight()
+            cx, cy = w // 2, h // 2
+            x0, y0 = cx - tw // 2, cy - th // 2
+            x1, y1 = x0 + tw, y0 + th
+            c.delete("frame")
+            c.create_rectangle(x0 + 10, y0 + 12, x1 + 10, y1 + 12,
+                               fill=SHEET_SHADOW, outline="", tags="frame")
+            c.tag_raise("frame", "desk")
+            if self._text_window is None:
+                self._text_window = c.create_window(cx, cy, window=self.text,
+                                                    anchor="center")
+            else:
+                c.coords(self._text_window, cx, cy)
+            c.tag_raise(self._text_window)
+            if getattr(self, "_help_btn", None) is not None:
+                # NB: Canvas.lift() is aliased to canvas item raise, so to raise
+                # the button *widget* in the stacking order we call Tk directly.
+                self._help_btn.tk.call("raise", self._help_btn._w)
+            self._snap_to_page(self.current_page)
+        finally:
+            self._laying_out = False
+
+    # -----------------------------------------------------------------------
+    # 3d-ter. Pagination: one continuous document shown one page at a time
+    # -----------------------------------------------------------------------
+    def _cursor_display_line(self):
+        """Which on-screen line (0-based) the cursor is on."""
+        n = self.text.count("1.0", "insert", "displaylines")
+        return n[0] if n else 0
+
+    def _total_pages(self):
+        return max(1, (self._content_display_lines() + self.rows - 1) // self.rows)
+
+    def _snap_to_page(self, page):
+        """Scroll so that `page` is shown from its first line at the very top."""
+        page = max(0, min(page, self._total_pages() - 1))
+        self.text.update_idletasks()
+        fv = self.text.count("1.0", "@0,0", "displaylines")
+        first = fv[0] if fv else 0
+        delta = page * self.rows - first
+        if delta:
+            self.text.yview_scroll(delta, "units")
+        self.current_page = page
+
+    def _update_pagination(self, _event=None):
+        """After typing or moving the cursor, show the page the cursor is on.
+        This is what makes text flow onto a new page automatically."""
+        if self._laying_out:
+            return
+        # Safety: if the user typed real text onto a filler line, drop the
+        # 'pad' tag from that line so the text is saved normally (never lost).
+        ls, le = self.text.index("insert linestart"), self.text.index("insert lineend")
+        if "pad" in self.text.tag_names("insert") and self.text.get(ls, le).strip():
+            self.text.tag_remove("pad", ls, le + "+1c")
+        self._snap_to_page(self._cursor_display_line() // self.rows)
+        self._refresh_status()
+
+    def _go_to_page(self, page):
+        """Move the cursor to the top of `page` and show that page."""
+        page = max(0, min(page, self._total_pages() - 1))
+        self.text.mark_set("insert",
+                           self.text.index(f"1.0 + {page * self.rows} display lines"))
+        self._snap_to_page(page)
         self._refresh_status()
 
     def toggle_fullscreen(self, _event=None):
@@ -412,7 +558,7 @@ class Typro:
                                  "Alt_L", "Alt_R", "Meta_L", "Meta_R",
                                  "Super_L", "Super_R"):
                 return
-            if event.state & 0x0004:          # Control held -> it's a shortcut
+            if event.state & SHORTCUT_MASK:   # MOD held -> it's a shortcut
                 return
         if not self._ensure_click_sound():
             return
@@ -435,29 +581,45 @@ class Typro:
         self._refresh_status()
 
     def _store_current_view(self):
-        """Save whatever is on screen back into the current page in memory."""
-        self.notebook["pages"][self.current_page]["segments"] = \
-            self._view_to_segments()
+        """Save the whole document back into the notebook (as one flowing page;
+        the PDF and the on-screen view both re-paginate it on demand)."""
+        self.notebook["pages"] = [{"segments": self._view_to_segments()}]
 
-    def _load_page_into_view(self, index):
-        """Show page number `index` in the typing area."""
-        self.current_page = index
-        self._segments_to_view(self.notebook["pages"][index]["segments"])
-        self._typewriter_scroll()
+    def _concat_pages(self, pages):
+        """Join every page's segments into one continuous list of segments."""
+        segments = []
+        for i, page in enumerate(pages):
+            page_segs = page.get("segments", [])
+            if i > 0 and segments and not segments[-1]["text"].endswith("\n"):
+                segments.append({"text": "\n", "color": "black"})
+            segments.extend(page_segs)
+        return segments
+
+    def _load_notebook(self):
+        """Load the whole notebook into the typing area and show page 1."""
+        self._segments_to_view(self._concat_pages(self.notebook["pages"]))
+        self.current_page = 0
         # Loading text fires <<Modified>>, so reset the flag afterwards.
         self.text.edit_modified(False)
         self.modified = False
+        self.root.after_idle(self._layout)
 
     # -----------------------------------------------------------------------
     # 3e. Actions the user triggers with shortcuts
     # -----------------------------------------------------------------------
     def new_page(self):
-        """Add a blank page to the current notebook and jump to it."""
-        self._store_current_view()
-        self.notebook["pages"].append(self._blank_page())
-        self._load_page_into_view(len(self.notebook["pages"]) - 1)
+        """Start a fresh page: fill the rest of the current page with blank
+        lines so that what you type next begins at the top of a new sheet."""
+        if not self.text.get("1.0", self._content_end()).strip():
+            return                            # document is empty - already a page
+        lines = self._content_display_lines()
+        remainder = lines % self.rows
+        pad = self.rows - remainder if remainder else 0
+        if pad:
+            self.text.insert(self._content_end(), "\n" * pad)
+        self.text.mark_set("insert", self._content_end())
         self.modified = True
-        self._refresh_status()
+        self._update_pagination()
 
     def new_notebook(self):
         """Start a brand-new notebook (asks to save the old one first)."""
@@ -473,41 +635,39 @@ class Typro:
         self.notebook = self._blank_notebook(name, size)
         self.file_path = None
         self._apply_paper_size(size)
-        self._load_page_into_view(0)
+        self._load_notebook()
         self._refresh_status()
 
     def insert_date(self):
         """Type today's date, in red, at the cursor: e.g. 31 MAY 2026."""
         today = datetime.date.today().strftime(DATE_FORMAT).upper()
         self.text.insert("insert", today, "date")
-        self._typewriter_scroll()
+        self._update_pagination()
 
     def delete_page(self):
-        """Delete the page you are on (a notebook always keeps >= 1 page)."""
-        if len(self.notebook["pages"]) == 1:
-            messagebox.showinfo(
-                APP_NAME, "This is the only page - it cannot be deleted.")
-            return
-        if not messagebox.askyesno(
-                APP_NAME, f"Delete page {self.current_page + 1}?"):
-            return
-        del self.notebook["pages"][self.current_page]
-        new_index = max(0, self.current_page - 1)
-        self._load_page_into_view(new_index)
+        """Delete the lines that make up the page you are on. The document
+        always keeps at least one (possibly empty) page."""
+        if self._total_pages() == 1:
+            if not messagebox.askyesno(APP_NAME, "Clear this page?"):
+                return
+            self.text.delete("1.0", "end")
+        else:
+            if not messagebox.askyesno(
+                    APP_NAME, f"Delete page {self.current_page + 1}?"):
+                return
+            page = self.current_page
+            start = self.text.index(f"1.0 + {page * self.rows} display lines")
+            end = self.text.index(f"1.0 + {(page + 1) * self.rows} display lines")
+            self.text.delete(start, end)
         self.modified = True
-        self._refresh_status()
+        self._refresh_pad()                  # restore filler we may have deleted
+        self._go_to_page(min(self.current_page, self._total_pages() - 1))
 
     def next_page(self):
-        self._store_current_view()
-        if self.current_page < len(self.notebook["pages"]) - 1:
-            self._load_page_into_view(self.current_page + 1)
-        self._refresh_status()
+        self._go_to_page(self.current_page + 1)
 
     def prev_page(self):
-        self._store_current_view()
-        if self.current_page > 0:
-            self._load_page_into_view(self.current_page - 1)
-        self._refresh_status()
+        self._go_to_page(self.current_page - 1)
 
     # -----------------------------------------------------------------------
     # 3f. Saving and opening files
@@ -572,7 +732,7 @@ class Typro:
         self.notebook = notebook
         self.file_path = path
         self._apply_paper_size(self.notebook["paper_size"])
-        self._load_page_into_view(0)
+        self._load_notebook()
         self._refresh_status()
 
     def _sanitize_notebook(self, data):
@@ -643,11 +803,49 @@ class Typro:
             if path.lower().endswith(".txt"):
                 self._export_txt(path)
             else:
-                self._export_pdf(path)
+                # For PDF, ask whether the page should be the vintage cream
+                # colour (as shown in the app) or plain white.
+                paper_bg = self._ask_pdf_background()
+                if paper_bg is None:        # the user cancelled
+                    return
+                self._export_pdf(path, paper_bg)
         except OSError as err:
             messagebox.showerror(APP_NAME, f"Could not export:\n{err}")
             return
         messagebox.showinfo(APP_NAME, f"Exported to:\n{path}")
+
+    def _ask_pdf_background(self):
+        """Keyboard-friendly chooser for the PDF page colour.
+        Returns 'cream', 'white', or None if cancelled."""
+        win = tk.Toplevel(self.root)
+        win.title("PDF page colour")
+        win.configure(bg=DESK_COLOR)
+        win.transient(self.root)
+        win.grab_set()
+        choice = {"value": None}
+
+        tk.Label(win, text="PDF page background:", bg=DESK_COLOR, fg=STATUS_FG,
+                 font=("Helvetica", 12), pady=8).pack(padx=20)
+
+        def pick(value):
+            choice["value"] = value
+            win.destroy()
+
+        tk.Button(win, text="1.  Vintage cream (as shown in Typro)",
+                  command=lambda: pick("cream"), width=34).pack(padx=20, pady=4)
+        tk.Button(win, text="2.  White",
+                  command=lambda: pick("white"), width=34).pack(padx=20, pady=4)
+        tk.Label(win, text="Press 1 or 2, or Esc to cancel.",
+                 bg=DESK_COLOR, fg=STATUS_FG, font=("Helvetica", 9),
+                 pady=8).pack()
+
+        win.bind("1", lambda e: pick("cream"))
+        win.bind("2", lambda e: pick("white"))
+        win.bind("<Escape>", lambda e: win.destroy())
+        win.update_idletasks()
+        self._center(win)
+        self.root.wait_window(win)
+        return choice["value"]
 
     def _export_txt(self, path):
         """Write all pages as plain UTF-8 text (pages separated by a divider)."""
@@ -713,9 +911,12 @@ class Typro:
         out = text.encode("latin-1", "replace").decode("latin-1")
         return out.replace("\\", r"\\").replace("(", r"\(").replace(")", r"\)")
 
-    def _build_pdf(self):
+    def _build_pdf(self, paper_bg="white"):
         """Build the whole PDF document as bytes, in the chosen paper size,
-        flowing long pages onto extra sheets (a basic 'print flow')."""
+        flowing long pages onto extra sheets (a basic 'print flow').
+
+        paper_bg is 'cream' to fill each page with the vintage paper colour, or
+        'white' to leave the page white."""
         size = PAPER_SIZES[self.notebook["paper_size"]]
         page_w, page_h = size["pts"]
         margin, fsize = size["margin"], size["pdf_font"]
@@ -733,11 +934,20 @@ class Typro:
         if not sheets:
             sheets = [[]]
 
+        # If the cream background was chosen, the drawing commands that fill the
+        # whole page first. (For white we draw nothing - PDF pages are white.)
+        bg_cmds = []
+        if paper_bg == "cream":
+            r, g, b = PDF_CREAM
+            bg_cmds = [f"{r:.3f} {g:.3f} {b:.3f} rg",
+                       f"0 0 {page_w:.2f} {page_h:.2f} re", "f"]
+
         # Build a content stream (the drawing commands) for each sheet.
         content_streams = []
         for sheet in sheets:
-            cmds = ["BT", f"/F1 {fsize} Tf", f"{leading:.2f} TL",
-                    f"1 0 0 1 {margin:.2f} {page_h - margin - fsize:.2f} Tm"]
+            cmds = list(bg_cmds)
+            cmds += ["BT", f"/F1 {fsize} Tf", f"{leading:.2f} TL",
+                     f"1 0 0 1 {margin:.2f} {page_h - margin - fsize:.2f} Tm"]
             for n, line in enumerate(sheet):
                 if n > 0:
                     cmds.append("T*")               # move down one line
@@ -781,9 +991,9 @@ class Typro:
                 f"startxref\n{xref_pos}\n%%EOF\n").encode()
         return bytes(out)
 
-    def _export_pdf(self, path):
+    def _export_pdf(self, path, paper_bg="white"):
         with open(path, "wb") as f:
-            f.write(self._build_pdf())
+            f.write(self._build_pdf(paper_bg))
 
     # -----------------------------------------------------------------------
     # 3g. Paper size
@@ -829,35 +1039,43 @@ class Typro:
         return choice["value"]
 
     def _apply_paper_size(self, size):
-        """Resize the typing area to match the chosen paper."""
-        self.text.configure(width=PAPER_SIZES[size]["cols"])
+        """Switch the page grid to the chosen paper and re-lay-out. Because the
+        document flows continuously, the pages simply re-break to the new size."""
+        self.cols = PAPER_SIZES[size]["cols"]
+        self.rows = PAPER_SIZES[size]["rows"]
+        self.text.configure(width=self.cols, height=self.rows)
+        was_modified = self.modified
+        self._refresh_pad()                  # filler depends on the new row count
+        self.text.edit_modified(False)
+        self.modified = was_modified
+        self._layout()
 
     # -----------------------------------------------------------------------
     # 3h. Help window
     # -----------------------------------------------------------------------
     def show_help(self):
+        m = MOD_LABEL                         # "Cmd" on macOS, "Ctrl" elsewhere
         text = (
             "TYPRO - KEYBOARD SHORTCUTS\n"
             "============================\n\n"
-            "  Ctrl + N           New page (in this notebook)\n"
-            "  Ctrl + Shift + N   New notebook\n"
-            "  Ctrl + O           Open a .typro notebook\n"
-            "  Ctrl + S           Save (.typro - editable in Typro)\n"
-            "  Ctrl + Shift + S   Save as (choose name / folder)\n"
-            "  Ctrl + P  or  E    Save as PDF / export (PDF or text)\n"
-            "  Ctrl + D           Insert today's date (red)\n"
-            "  Ctrl + Delete      Delete the current page\n"
-            "  Ctrl + Right       Next page\n"
-            "  Ctrl + Left        Previous page\n"
-            "  Ctrl + Shift + P   Change paper size (A4 / 3x4 in)\n"
-            "  Ctrl + M           Typewriter view on/off (line at top)\n"
-            "  Ctrl + B           Key-click sound on/off\n"
+            f"  {m} + N            New page (page break)\n"
+            f"  {m} + Shift + N    New notebook\n"
+            f"  {m} + O            Open a .typro notebook\n"
+            f"  {m} + S            Save (.typro - editable in Typro)\n"
+            f"  {m} + Shift + S    Save as (choose name / folder)\n"
+            f"  {m} + P  or  E     Save as PDF / export (PDF or text)\n"
+            f"  {m} + D            Insert today's date (red)\n"
+            f"  {m} + Delete       Delete the current page\n"
+            f"  {m} + Right        Next page\n"
+            f"  {m} + Left         Previous page\n"
+            f"  {m} + Shift + P    Change paper size (A4 / 3x4 in)\n"
+            f"  {m} + B            Key-click sound on/off\n"
             "  F11                Full screen on/off (Esc also exits)\n"
-            "  Ctrl + Z / Ctrl+Y  Undo / Redo\n"
-            "  Ctrl + /  or  F1   This help screen\n"
-            "  Ctrl + Q           Quit Typro\n\n"
+            f"  {m} + Z / {m} + Y    Undo / Redo\n"
+            f"  {m} + /  or  F1    This help screen\n"
+            f"  {m} + Q            Quit Typro\n\n"
             "Tip: click the round '?' button (bottom-right) any time.\n"
-            "(On macOS, F1 may need the Fn key; Ctrl + / always works.)\n"
+            f"(On macOS the modifier is Command; elsewhere it is Ctrl.)\n"
             "Press Esc to close this window."
         )
         win = tk.Toplevel(self.root)
@@ -904,13 +1122,12 @@ class Typro:
     def _refresh_status(self):
         dot = "*" if self.modified else ""
         size_label = PAPER_SIZES[self.notebook["paper_size"]]["label"]
-        page_info = f"Page {self.current_page + 1} of {len(self.notebook['pages'])}"
-        tw = "Typewriter: on" if self.typewriter_mode else "Typewriter: off"
+        page_info = f"Page {self.current_page + 1} of {self._total_pages()}"
         snd = "Sound: on" if self.sound_on else "Sound: off"
         self.status.config(
             text=f"  {dot}{self.notebook['name']}    |    "
-                 f"{page_info}    |    {size_label}    |    {tw}    |    "
-                 f"{snd}    |    Ctrl+/ = Help"
+                 f"{page_info}    |    {size_label}    |    "
+                 f"{snd}    |    {MOD_LABEL}+/ = Help"
         )
 
     def _center(self, win):

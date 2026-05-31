@@ -4,6 +4,6 @@ Name=Typro
 Comment=Offline typewriter
 Exec=python3 /home/pi/typro/typro.py
 Path=/home/pi/typro
-Icon=/home/pi/typro/typro.png
+Icon=/home/pi/typro/img/typewriter_icon_128x128.png
 Terminal=false
 Categories=Utility;
